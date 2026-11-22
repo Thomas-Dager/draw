@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TRAZO IA — App de Sketching, Objetos sin Repetición y 10 Referencias</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&family=Playfair+Display:ital,wght@0,600;0,700;1,600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Top Navigation / Header -->
+  <header class="app-header">
+    <div class="brand" id="brandHomeBtn" title="Volver al selector de objetos">
+      <div class="brand-logo">✎</div>
+      <div>
+        <h1 class="brand-title">TRAZO <span class="ai-pill">IA</span></h1>
+        <p class="brand-subtitle">Estudio de Sketching &amp; Referencias Verificadas</p>
+      </div>
+    </div>
+
+    <div class="step-indicator">
+      <button class="step-pill active" id="navStep1Btn">
+        <span class="step-num">1</span> Elegir Objeto
+      </button>
+      <span class="step-arrow">→</span>
+      <button class="step-pill" id="navStep2Btn" disabled>
+        <span class="step-num">2</span> 10 Referencias &amp; Cronómetro
+      </button>
+    </div>
+
+    <div class="header-stats">
+      <div class="stat-chip" title="Baraja inteligente: ningún objeto se repite y se auto-expande con IA">
+        <span class="stat-icon">🗂️</span>
+        <span>Sin repetir: <strong id="statDeckProgress">1/671</strong></span>
+        <button class="btn-mini-reset" id="resetDeckBtn" title="Reiniciar historial de objetos vistos">↺</button>
+      </div>
+      <div class="stat-chip" title="Bocetos completados en esta sesión">
+        <span class="stat-icon">🎨</span>
+        <span>Sketches: <strong id="statSketchesCount">0</strong></span>
+      </div>
+      <div class="stat-chip" title="Tiempo total dibujando hoy">
+        <span class="stat-icon">⏱️</span>
+        <span>Práctica: <strong id="statTotalTime">0m 00s</strong></span>
+      </div>
+      <button class="btn-ai-config" id="openFavoritesBtn" title="Abrir tus imágenes de referencia guardadas en Favoritos">
+        ⭐ <span>Favoritos (<strong id="favRefsCount">0</strong>)</span>
+      </button>
+      <button class="btn-ai-config" id="openAiSettingsBtn" title="Configurar Pexels, Pixabay, Unsplash, Gemini y bibliotecas de imágenes">
+        📚 <span id="aiStatusLabel">Bibliotecas &amp; IA</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Filtros SVG Matemáticos para Posterización (Notan 2/3/4/5 tonos), Silueta Pura (Umbral) y Detector de Contornos (Sin restricciones CORS) -->
+  <svg width="0" height="0" style="position:absolute;width:0;height:0;overflow:hidden;" aria-hidden="true">
+    <defs>
+      <!-- Posterización / Mapa de Valores (Notan) -->
+      <filter id="svgPosterizeFilter" color-interpolation-filters="sRGB">
+        <feColorMatrix type="saturate" values="0" result="gray" />
+        <feComponentTransfer in="gray" result="posterized">
+          <feFuncR id="posterizeFuncR" type="discrete" tableValues="0 0.5 1" />
+          <feFuncG id="posterizeFuncG" type="discrete" tableValues="0 0.5 1" />
+          <feFuncB id="posterizeFuncB" type="discrete" tableValues="0 0.5 1" />
+        </feComponentTransfer>
+      </filter>
+
+      <!-- Silueta Pura / Umbral (Threshold) -->
+      <filter id="svgThresholdFilter" color-interpolation-filters="sRGB">
+        <feColorMatrix type="saturate" values="0" result="gray" />
+        <feComponentTransfer in="gray" result="thresholded">
+          <feFuncR id="thresholdFuncR" type="discrete" tableValues="0 1" />
+          <feFuncG id="thresholdFuncG" type="discrete" tableValues="0 1" />
+          <feFuncB id="thresholdFuncB" type="discrete" tableValues="0 1" />
+        </feComponentTransfer>
+      </filter>
+
+      <!-- Detector de Contornos / Líneas de Fuerza -->
+      <filter id="svgEdgeFilter" color-interpolation-filters="sRGB">
+        <feColorMatrix type="saturate" values="0" result="gray" />
+        <feConvolveMatrix
+          id="edgeConvolveMatrix"
+          in="gray"
+          order="3 3"
+          kernelMatrix="-1 -1 -1 -1 8 -1 -1 -1 -1"
+          divisor="1"
+          bias="0"
+          preserveAlpha="true"
+          result="edges"
+        />
+        <feComponentTransfer in="edges" result="invertedEdges">
+          <feFuncR type="table" tableValues="1 0" />
+          <feFuncG type="table" tableValues="1 0" />
+          <feFuncB type="table" tableValues="1 0" />
+        </feComponentTransfer>
+      </filter>
+    </defs>
+  </svg>
+
+  <!-- Inputs ocultos para cargar foto de referencia propia o foto de tu dibujo en papel -->
+  <input type="file" id="uploadCustomRefInput" accept="image/*" multiple class="hidden" />
+  <input type="file" id="uploadUserDrawingInput" accept="image/*" class="hidden" />
+
+  <main class="app-main">
+    <!-- ==================== VISTA 1: SELECTOR DE OBJETO (BARAJA SIN REPETICIÓN + IA) ==================== -->
+    <section id="viewPicker" class="view-section active">
+      <div class="picker-hero">
+        <span class="eyebrow-badge">PASO 1 · BARAJA INTELIGENTE + IA GENERATIVA</span>
+        <h2>¿Qué vamos a dibujar hoy?</h2>
+        <p>Usa la baraja con memoria (<strong>nunca repite un objeto ya visto</strong>) o pídele a la <strong>IA</strong> que invente un nuevo reto de dibujo. Al decidirte, obtendrás <strong>10 referencias verificadas</strong> del objeto exacto.</p>
+      </div>
+
+      <!-- Filtros de Categoría (16 Categorías Especializadas) -->
+      <div class="category-bar" id="categoryBar">
+        <button class="cat-btn active" data-category="all">✨ Todas las Categorías (<span id="countAll">831</span>)</button>
+        <button class="cat-btn" data-category="simples" title="Más de 160 objetos individuales de silueta clara y volúmenes básicos (tazas, hidrantes, auriculares, jarrones, picaportes, pinceles, herramientas, etc.) ideales para encaje rápido y estudio de formas puras.">🖌️ Objetos Simples</button>
+        <button class="cat-btn" data-category="arquitectura" title="Edificios históricos, fachadas complejas, calles y el reto de dominar la perspectiva lineal.">🏛️ Arquitectura y Paisaje Urbano</button>
+        <button class="cat-btn" data-category="naturaleza" title="Hojas, flores, ramas, cortezas y patrones orgánicos (excelente para practicar curvas y fluidez).">🌿 Naturaleza y Botánica</button>
+        <button class="cat-btn" data-category="anatomia" title="Estudios de proporciones, gesture drawing (dibujo gestual rápido), manos, rostros y escorzos.">🖐️ Figura Humana y Anatomía</button>
+        <button class="cat-btn" data-category="animales" title="Desde animales domésticos hasta fauna salvaje, enfocándose en la estructura ósea, pelaje y plumas.">🦉 Animales y Fauna</button>
+        <button class="cat-btn" data-category="cotidiano" title="Tazas, libros apilados, vajilla o herramientas para estudiar volúmenes, cilindros y esferas.">☕ Objetos Cotidianos y Bodegón</button>
+        <button class="cat-btn" data-category="vehiculos" title="Automóviles, bicicletas, motocicletas y piezas mecánicas complejas con superficies metálicas.">🏎️ Vehículos y Maquinaria</button>
+        <button class="cat-btn" data-category="paisajes" title="Montañas, ríos, formaciones rocosas, olas del mar, cielos y nubes (ideales para la atmósfera).">🏔️ Paisajes Naturales y Elementos</button>
+        <button class="cat-btn" data-category="retro" title="Consolas antiguas, cámaras de rollo, radios y dispositivos con formas geométricas definidas.">📻 Tecnología Retro y Clásicos</button>
+        <button class="cat-btn" data-category="personajes" title="Creación de avatares, proporciones de cómic, manga o estilos de animación (concept art).">🎭 Diseño de Personajes y Estilizados</button>
+        <button class="cat-btn" data-category="gastronomia" title="Frutas con texturas irregulares, panificados, platos elaborados y el reflejo en cubiertos o cristalería.">🥐 Comida y Gastronomía</button>
+        <button class="cat-btn" data-category="texturas" title="Pliegues de telas y drapería, vetas de madera, cuero desgastado o superficies rugosas.">🧶 Estudios de Texturas y Superficies</button>
+        <button class="cat-btn" data-category="interiores" title="Habitaciones, muebles, distribución de elementos en el espacio y estudios de iluminación interior.">🛋️ Interiores y Espacios</button>
+        <button class="cat-btn" data-category="filigranas" title="Elementos gráficos detallados, grabados antiguos, heráldica o motivos ornamentales.">⚜️ Filigranas, Estampillas y Símbolos</button>
+        <button class="cat-btn" data-category="industrial" title="Gadgets, utensilios de diseño ergonómico y esquemas estructurales de productos.">📐 Diseño Industrial y Funcional</button>
+        <button class="cat-btn" data-category="fantasia" title="Dragones, armaduras ornamentadas, criaturas fantásticas y mundos imaginarios.">🐉 Fantasía y Criaturas Mitológicas</button>
+      </div>
+
+      <!-- Descripción pedagógica de la categoría activa -->
+      <div class="category-desc-banner" id="activeCategoryDesc">
+        <strong>✨ Todas las Categorías (15 disciplinas):</strong> Explora los 671+ retos de dibujo o selecciona arriba una categoría específica para entrenar perspectiva, anatomía, texturas, diseño industrial o fantasía.
+      </div>
+
+      <!-- Tarjeta Principal del Objeto Sorteado -->
+      <div class="randomizer-stage">
+        <div class="featured-object-card" id="featuredObjectCard">
+          <div class="card-top-row">
+            <div class="tags-left">
+              <span class="object-category-tag" id="objCategoryTag">Objetos Cotidianos</span>
+              <span class="ai-origin-badge hidden" id="objAiBadge">✨ Creado por IA</span>
+            </div>
+            <span class="dice-status" id="diceStatus">Baraja sin repeticiones activa</span>
+          </div>
+
+          <div class="object-main-display">
+            <div class="object-huge-icon" id="objIcon">☕</div>
+            <div class="object-text-info">
+              <h3 class="object-title" id="objTitle">Cafetera Italiana (Moka)</h3>
+              <div class="object-tip-box">
+                <span class="tip-label">💡 Consejo de construcción:</span>
+                <p id="objTip">Construye primero el eje central vertical y dibuja octágonos en perspectiva para las facetas metálicas.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="card-actions">
+            <button class="btn btn-secondary btn-lg" id="rollRandomBtn" title="Saca el siguiente objeto de la baraja garantizando que no se repita">
+              <span>🎲</span> Siguiente objeto (Sin repetir)
+            </button>
+            <button class="btn btn-ai btn-lg" id="generateAiObjectBtn" title="La IA inventa un objeto inédito que no está en tu historial">
+              <span>🤖</span> Crear objeto inédito con IA
+            </button>
+            <button class="btn btn-primary btn-lg" id="confirmObjectBtn">
+              ✨ ¡Decidido! Ver 10 Referencias →
+            </button>
+          </div>
+        </div>
+
+        <!-- Opciones rápidas alternativas (3 sugerencias no vistas) -->
+        <div class="alternatives-panel">
+          <div class="alternatives-header">
+            <h4>O elige directamente una de estas 3 alternativas no vistas:</h4>
+            <button class="btn-text" id="refreshAlternativesBtn">↻ Otras 3 alternativas</button>
+          </div>
+          <div class="alternatives-grid" id="alternativesGrid">
+            <!-- Rellenado dinámicamente -->
+          </div>
+
+          <!-- Buscador libre enriquecido con IA -->
+          <div class="custom-object-box">
+            <form id="customObjectForm" class="custom-object-form">
+              <input
+                type="text"
+                id="customObjectInput"
+                placeholder="✍️ Escribe cualquier objeto (la IA buscará y generará 10 referencias exactas): ej. Casco samurái, Tetera marroquí..."
+                autocomplete="off"
+              />
+              <button type="submit" class="btn btn-outline" id="customObjectSubmitBtn">
+                🤖 Analizar con IA y cargar 10 referencias →
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== VISTA 2: ESTUDIO (10 REFERENCIAS + CRONÓMETRO) ==================== -->
+    <section id="viewStudio" class="view-section">
+      <div class="studio-layout">
+        <!-- COLUMNA IZQUIERDA / CENTRAL: VISOR DE 10 REFERENCIAS -->
+        <div class="reference-workspace">
+          <!-- Barra superior del objeto actual y selector de motor de referencias -->
+          <div class="workspace-topbar">
+            <div class="current-subject-badge">
+              <button class="btn-icon-back" id="backToPickerBtn" title="Elegir otro objeto">← Cambiar objeto</button>
+              <span class="subject-divider">|</span>
+              <span class="subject-icon" id="studioSubjectIcon">☕</span>
+              <h2 class="subject-name" id="studioSubjectName">Cafetera Italiana</h2>
+              <span class="ref-counter-pill" id="refCounterPill">Imagen 1 de 10</span>
+            </div>
+
+            <div class="topbar-right-controls">
+              <!-- Buscador Web en Vivo (para afinar la búsqueda de imágenes directamente como en Google) -->
+              <form class="live-web-search-form" id="liveWebSearchForm" title="Edita los términos para buscar exactamente esas fotos en la Web">
+                <span class="search-icon-prefix">🔎</span>
+                <input
+                  type="text"
+                  id="liveWebSearchInput"
+                  placeholder="Buscar imágenes en la web..."
+                  autocomplete="off"
+                />
+                <button type="submit" class="btn-mini-search" id="liveWebSearchBtn">Buscar</button>
+                <button type="button" class="btn-mini-google" id="openGoogleImagesTabBtn" title="Abrir esta búsqueda en una pestaña de Google Imágenes">
+                  Google ↗
+                </button>
+              </form>
+
+              <!-- Selector de biblioteca de referencias -->
+              <div class="ref-source-selector" title="Elige de qué fuente obtener las 10 referencias">
+                <label for="refSourceSelect">Fuente:</label>
+                <select id="refSourceSelect">
+                  <option value="google_web" selected>🔎 Búsqueda Web Directa (Imágenes como en Google)</option>
+                  <option value="all_libraries">🌐 Todo Combinado (Web + Pexels + Openverse + Museos + Wiki)</option>
+                  <option value="openverse">📸 Solo Openverse (Flickr · StockSnap · Rawpixel)</option>
+                  <option value="pexels">🟢 Solo Pexels API</option>
+                  <option value="museums_inat">🏛️ Museos &amp; Ciencia (Cleveland Museum + iNaturalist)</option>
+                  <option value="wikimedia">📷 Solo Wikimedia Commons</option>
+                  <option value="gemini_ai">🤖 Gemini 3.1 Flash Image (IA)</option>
+                </select>
+              </div>
+
+              <div class="view-mode-tabs">
+                <button class="mode-tab active" id="tabSingleView" title="Ver imagen actual en grande">
+                  🖼️ Estudio
+                </button>
+                <button class="mode-tab" id="tabGridView" title="Ver las 10 imágenes en cuadrícula">
+                  ☷ Las 10 Fotos
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Barra de herramientas para el artista (Valores, Notan, Silueta, Contornos, Plomada, Ángulos, Cuadrícula, Comparador) -->
+          <div class="artist-toolbar" id="artistToolbar">
+            <div class="tool-group">
+              <span class="tool-group-label">Filtros:</span>
+              <button class="tool-btn" id="toggleGrayscaleBtn" title="Activar/Desactivar Escala de Grises (Tecla G)">
+                ◐ B/N <span class="tool-val-badge" id="badgeGrayscale">0%</span>
+              </button>
+              <button class="tool-btn" id="toggleContrastBtn" title="Activar/Desactivar Contraste de Sombras (Tecla V)">
+                ◑ Contraste <span class="tool-val-badge" id="badgeContrast">100%</span>
+              </button>
+              <button class="tool-btn" id="toggleBlurBtn" title="Activar/Desactivar Desenfoque de Masas (Tecla B)">
+                ◌ Masas <span class="tool-val-badge" id="badgeBlur">0px</span>
+              </button>
+              <button class="tool-btn" id="togglePosterizeBtn" title="Mapa de Valores / Notan en 2, 3, 4 o 5 tonos (Tecla N)">
+                ▤ Valores <span class="tool-val-badge" id="badgePosterize">Off</span>
+              </button>
+              <button class="tool-btn" id="toggleThresholdBtn" title="Filtro de Silueta Pura y Espacio Negativo (Tecla S)">
+                ⬛ Silueta
+              </button>
+              <button class="tool-btn" id="toggleEdgesBtn" title="Detector de Contornos y Aristas Estructurales (Tecla E)">
+                ✏️ Contornos
+              </button>
+              <button class="tool-btn tool-btn-accent" id="toggleFilterPanelBtn" title="Abrir controles deslizantes para graduar B/N, Contraste, Brillo, Masas, Valores y Umbral">
+                🎚️ Graduar
+              </button>
+            </div>
+
+            <div class="tool-group">
+              <span class="tool-group-label">Medición y Papel:</span>
+              <button class="tool-btn" id="toggleFlipBtn" title="Voltear horizontalmente en espejo (Tecla F)">
+                ⇄ Espejo
+              </button>
+              <button class="tool-btn" id="togglePlumbBtn" title="Plomada Vertical y Nivel Horizontal arrastrables para medir alineaciones (Tecla P)">
+                ┼ Plomada
+              </button>
+              <button class="tool-btn" id="toggleProtractorBtn" title="Medidor de Ángulos e Inclinación interactivo (Sight-Size) (Tecla A)">
+                📐 Ángulo
+              </button>
+              <button class="tool-btn" id="toggleGridBtn" title="Mostrar/Ocultar cuadrícula en la referencia (Tecla M)">
+                ⊞ Cuadrícula <span class="tool-val-badge" id="badgeGridDims">3×3</span>
+              </button>
+              <button class="tool-btn tool-btn-accent" id="toggleGridPanelBtn" title="Configurar filas, columnas y el tamaño en cm de tu hoja de dibujo">
+                📏 Hoja (cm)
+              </button>
+            </div>
+
+            <div class="tool-group">
+              <button class="tool-btn" id="uploadCustomRefBtn" title="Subir foto desde tu PC o pegar con Ctrl+V para estudiarla">
+                📂 Subir / Ctrl+V
+              </button>
+              <button class="tool-btn" id="toggleComparePanelBtn" title="Superponer una foto de tu dibujo sobre la referencia para comparar proporciones (Modo Cebolla)">
+                👁️ Comparar Dibujo
+              </button>
+              <button class="tool-btn" id="toggleFavRefBtn" title="Guardar o quitar esta imagen de tus Referencias Favoritas (Tecla L)">
+                ☆ Favorito
+              </button>
+              <button class="tool-btn" id="zoomOutBtn" title="Alejar">−</button>
+              <span class="zoom-readout" id="zoomReadout">100%</span>
+              <button class="tool-btn" id="zoomInBtn" title="Acercar">+</button>
+              <button class="tool-btn" id="replaceCurrentImgBtn" title="Reemplazar esta foto por otra del mismo objeto">
+                🔄
+              </button>
+              <button class="tool-btn" id="fullscreenBtn" title="Pantalla completa">
+                ⛶
+              </button>
+            </div>
+          </div>
+
+          <!-- PANEL DESPLEGABLE 1: GRADUACIÓN DE FILTROS (B/N, CONTRASTE, BRILLO, MASAS, NOTAN, SILUETA Y CONTORNOS) -->
+          <div class="studio-config-panel hidden" id="filterSlidersPanel">
+            <div class="config-panel-header">
+              <span class="config-panel-title">🎚️ Estudio de Masas, Sombras, Mapa de Valores (Notan), Silueta y Contornos</span>
+              <div class="config-panel-actions">
+                <button type="button" class="btn-mini-reset" id="resetFiltersBtn">↺ Restablecer a original</button>
+                <button type="button" class="btn-mini-close" id="closeFilterPanelBtn" title="Cerrar panel">✕</button>
+              </div>
+            </div>
+            <div class="sliders-grid">
+              <!-- Desenfoque de Masas (Squint) -->
+              <div class="slider-control-card">
+                <div class="slider-card-top">
+                  <label for="blurRangeInput">◌ Desenfoque de Masas (Squint)</label>
+                  <span class="slider-value-pill" id="blurValueLabel">0 px</span>
+                </div>
+                <div class="slider-input-row">
+                  <button type="button" class="step-nudge-btn" data-target="blurRangeInput" data-step="-2">−</button>
+                  <input type="range" id="blurRangeInput" min="0" max="45" step="0.5" value="0" />
+                  <button type="button" class="step-nudge-btn" data-target="blurRangeInput" data-step="2">+</button>
+                </div>
+                <small class="slider-hint">Súbelo entre 10px y 45px para eliminar detalles y ver solo las grandes formas geométricas.</small>
+              </div>
+
+              <!-- Contraste (Separación Luz / Sombra) -->
+              <div class="slider-control-card">
+                <div class="slider-card-top">
+                  <label for="contrastRangeInput">◑ Contraste (Separar Sombras)</label>
+                  <span class="slider-value-pill" id="contrastValueLabel">100%</span>
+                </div>
+                <div class="slider-input-row">
+                  <button type="button" class="step-nudge-btn" data-target="contrastRangeInput" data-step="-15">−</button>
+                  <input type="range" id="contrastRangeInput" min="50" max="350" step="5" value="100" />
+                  <button type="button" class="step-nudge-btn" data-target="contrastRangeInput" data-step="15">+</button>
+                </div>
+                <small class="slider-hint">Auméntalo (180%–350%) para marcar el límite duro entre luz y sombra (terminador).</small>
+              </div>
+
+              <!-- Escala de Grises (B/N) -->
+              <div class="slider-control-card">
+                <div class="slider-card-top">
+                  <label for="grayscaleRangeInput">◐ Blanco y Negro (Valores)</label>
+                  <span class="slider-value-pill" id="grayscaleValueLabel">0%</span>
+                </div>
+                <div class="slider-input-row">
+                  <button type="button" class="step-nudge-btn" data-target="grayscaleRangeInput" data-step="-10">−</button>
+                  <input type="range" id="grayscaleRangeInput" min="0" max="100" step="5" value="0" />
+                  <button type="button" class="step-nudge-btn" data-target="grayscaleRangeInput" data-step="10">+</button>
+                </div>
+                <small class="slider-hint">Quita la distracción del color gradualmente para traducir tonos a grafito o carboncillo.</small>
+              </div>
+
+              <!-- Brillo / Exposición de Sombras -->
+              <div class="slider-control-card">
+                <div class="slider-card-top">
+                  <label for="brightnessRangeInput">☀️ Exposición / Umbral Tonal</label>
+                  <span class="slider-value-pill" id="brightnessValueLabel">100%</span>
+                </div>
+                <div class="slider-input-row">
+                  <button type="button" class="step-nudge-btn" data-target="brightnessRangeInput" data-step="-10">−</button>
+                  <input type="range" id="brightnessRangeInput" min="35" max="175" step="5" value="100" />
+                  <button type="button" class="step-nudge-btn" data-target="brightnessRangeInput" data-step="10">+</button>
+                </div>
+                <small class="slider-hint">Combínalo con alto contraste para aislar las sombras más profundas o las luces altas.</small>
+              </div>
+
+              <!-- Mapa de Valores / Posterización (Notan 2, 3, 4, 5 tonos) -->
+              <div class="slider-control-card">
+                <div class="slider-card-top">
+                  <label for="posterizeLevelsSelect">▤ Mapa de Valores (Notan / Posterizar)</label>
+                  <span class="slider-value-pill" id="posterizeValueLabel">Desactivado</span>
+                </div>
+                <div class="slider-input-row">
+                  <select id="posterizeLevelsSelect" class="compact-select" style="width:100%;">
+                    <option value="0">Desactivado (Gradiente continuo)</option>
+                    <option value="2">2 Valores — Notan Puro (Luz vs. Sombra)</option>
+                    <option value="3">3 Valores — Luz, Medio Tono y Sombra</option>
+                    <option value="4">4 Valores — Luz Alta, Luz, Sombra Propia, Oclusión</option>
+                    <option value="5">5 Valores — Escala Académica Completa</option>
+                  </select>
+                </div>
+                <small class="slider-hint">Agrupa la imagen en planos tonales discretos. Combínalo con 4px–8px de Masas para bloques limpios.</small>
+              </div>
+
+              <!-- Umbral de Silueta (Espacio Negativo) y Detector de Contornos -->
+              <div class="slider-control-card">
+                <div class="slider-card-top">
+                  <label for="thresholdRangeInput">⬛ Umbral de Silueta / Contornos</label>
+                  <span class="slider-value-pill" id="thresholdValueLabel">50%</span>
+                </div>
+                <div class="slider-input-row">
+                  <button type="button" class="step-nudge-btn" data-target="thresholdRangeInput" data-step="-5">−</button>
+                  <input type="range" id="thresholdRangeInput" min="10" max="90" step="5" value="50" />
+                  <button type="button" class="step-nudge-btn" data-target="thresholdRangeInput" data-step="5">+</button>
+                </div>
+                <small class="slider-hint">Activa <strong>⬛ Silueta</strong> para ajustar el corte B/N de espacios negativos, o <strong>✏️ Contornos</strong> para ver las aristas.</small>
+              </div>
+            </div>
+          </div>
+
+          <!-- PANEL DESPLEGABLE 3: COMPARADOR "MI DIBUJO VS. REFERENCIA" (MODO CEBOLLA) -->
+          <div class="studio-config-panel hidden" id="compareDrawingPanel">
+            <div class="config-panel-header">
+              <span class="config-panel-title">👁️ Comparador "Mi Dibujo vs. Referencia" (Superposición / Cebolla)</span>
+              <div class="config-panel-actions">
+                <button type="button" class="btn-mini-search" id="selectUserDrawingFileBtn">📷 Subir foto de mi dibujo</button>
+                <button type="button" class="btn-mini-reset" id="clearUserDrawingBtn">🗑️ Quitar superposición</button>
+                <button type="button" class="btn-mini-close" id="closeComparePanelBtn" title="Cerrar panel">✕</button>
+              </div>
+            </div>
+            <div class="sliders-grid">
+              <div class="slider-control-card">
+                <div class="slider-card-top">
+                  <label for="overlayOpacityInput">👁️ Opacidad de tu Dibujo</label>
+                  <span class="slider-value-pill" id="overlayOpacityLabel">55%</span>
+                </div>
+                <div class="slider-input-row">
+                  <button type="button" class="step-nudge-btn" data-target="overlayOpacityInput" data-step="-10">−</button>
+                  <input type="range" id="overlayOpacityInput" min="0" max="100" step="5" value="55" />
+                  <button type="button" class="step-nudge-btn" data-target="overlayOpacityInput" data-step="10">+</button>
+                </div>
+                <small class="slider-hint">Desliza entre 0% y 100% para alternar visualmente entre la referencia y tu dibujo.</small>
+              </div>
+
+              <div class="slider-control-card">
+                <div class="slider-card-top">
+                  <label for="overlayScaleInput">🔍 Escala de tu Dibujo</label>
+                  <span class="slider-value-pill" id="overlayScaleLabel">100%</span>
+                </div>
+                <div class="slider-input-row">
+                  <button type="button" class="step-nudge-btn" data-target="overlayScaleInput" data-step="-5">−</button>
+                  <input type="range" id="overlayScaleInput" min="40" max="200" step="2" value="100" />
+                  <button type="button" class="step-nudge-btn" data-target="overlayScaleInput" data-step="5">+</button>
+                </div>
+                <small class="slider-hint">También puedes arrastrar tu dibujo directamente sobre la imagen para encajarlo.</small>
+              </div>
+
+              <div class="slider-control-card">
+                <div class="slider-card-top">
+                  <label for="overlayBlendSelect">🎨 Modo de Fusión</label>
+                  <button type="button" class="btn-mini-reset" id="resetOverlayPosBtn">Centrar</button>
+                </div>
+                <div class="slider-input-row">
+                  <select id="overlayBlendSelect" class="compact-select" style="width:100%;">
+                    <option value="multiply">Multiplicar (Ideal para lápiz sobre papel blanco)</option>
+                    <option value="normal">Normal (Transparencia directa)</option>
+                    <option value="difference">Diferencia (Resalta desvíos de contorno)</option>
+                    <option value="screen">Trama / Screen</option>
+                  </select>
+                </div>
+                <small class="slider-hint">El modo <em>Multiplicar</em> vuelve transparente el papel blanco de tu foto y deja solo tus trazos.</small>
+              </div>
+            </div>
+          </div>
+
+          <!-- PANEL DESPLEGABLE 2: CUADRÍCULA PERSONALIZADA (FILAS × COLUMNAS) + TAMAÑO DE HOJA REAL -->
+          <div class="studio-config-panel hidden" id="gridPaperPanel">
+            <div class="config-panel-header">
+              <span class="config-panel-title">📐 Cuadrícula a Medida y Proporción Exacta de tu Hoja de Papel</span>
+              <div class="config-panel-actions">
+                <button type="button" class="btn-mini-reset" id="makeSquareCellsBtn" title="Ajusta automáticamente las filas para que cada celda sea lo más cuadrada posible">⊞ Hacer celdas cuadradas</button>
+                <button type="button" class="btn-mini-close" id="closeGridPanelBtn" title="Cerrar panel">✕</button>
+              </div>
+            </div>
+
+            <div class="grid-paper-config-layout">
+              <!-- Bloque 1: Filas y Columnas -->
+              <div class="paper-config-card">
+                <div class="paper-card-title">1. Divisiones de la Cuadrícula (Filas × Columnas)</div>
+                <div class="grid-dims-controls">
+                  <div class="dim-field">
+                    <label for="gridColsInput">Columnas (Verticales)</label>
+                    <div class="number-stepper">
+                      <button type="button" class="stepper-btn" id="colsMinusBtn">−</button>
+                      <input type="number" id="gridColsInput" min="1" max="30" value="3" />
+                      <button type="button" class="stepper-btn" id="colsPlusBtn">+</button>
+                    </div>
+                  </div>
+
+                  <span class="dims-multiply">×</span>
+
+                  <div class="dim-field">
+                    <label for="gridRowsInput">Filas (Horizontales)</label>
+                    <div class="number-stepper">
+                      <button type="button" class="stepper-btn" id="rowsMinusBtn">−</button>
+                      <input type="number" id="gridRowsInput" min="1" max="30" value="3" />
+                      <button type="button" class="stepper-btn" id="rowsPlusBtn">+</button>
+                    </div>
+                  </div>
+
+                  <div class="dim-field">
+                    <label for="gridColorSelect">Color de Guía</label>
+                    <select id="gridColorSelect" class="compact-select">
+                      <option value="amber">🟠 Ámbar</option>
+                      <option value="cyan">🔵 Cian</option>
+                      <option value="red">🔴 Rojo Carmín</option>
+                      <option value="white">⚪ Blanco</option>
+                      <option value="green">🟢 Verde</option>
+                      <option value="black">⚫ Negro</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="grid-extra-toggles">
+                  <label class="mini-check">
+                    <input type="checkbox" id="gridShowDiagonalsCheck" checked />
+                    <span>✚ Ejes centrales y diagonales</span>
+                  </label>
+                  <label class="mini-check">
+                    <input type="checkbox" id="gridShowLabelsCheck" checked />
+                    <span>🔢 Coordenadas (A1, B2...)</span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- Bloque 2: Tamaño de la Hoja en la que dibujarás -->
+              <div class="paper-config-card">
+                <div class="paper-card-title">2. Tamaño de tu Hoja de Dibujo (Precisión 1:1)</div>
+                <div class="paper-size-controls">
+                  <div class="dim-field">
+                    <label for="paperPresetSelect">Formato de Hoja</label>
+                    <select id="paperPresetSelect" class="compact-select">
+                      <option value="A4">📄 A4 (21.0 × 29.7 cm)</option>
+                      <option value="A3">📄 A3 (29.7 × 42.0 cm)</option>
+                      <option value="A5">📄 A5 (14.8 × 21.0 cm)</option>
+                      <option value="letter">📄 Carta / Letter (21.6 × 27.9 cm)</option>
+                      <option value="square">⬜ Cuadrado (20.0 × 20.0 cm)</option>
+                      <option value="custom">✏️ Medida Personalizada (cm)</option>
+                    </select>
+                  </div>
+
+                  <div class="dim-field">
+                    <label for="paperWidthCmInput">Ancho (cm)</label>
+                    <input type="number" id="paperWidthCmInput" class="cm-input" min="2" max="200" step="0.1" value="21.0" />
+                  </div>
+
+                  <span class="dims-multiply">×</span>
+
+                  <div class="dim-field">
+                    <label for="paperHeightCmInput">Alto (cm)</label>
+                    <input type="number" id="paperHeightCmInput" class="cm-input" min="2" max="200" step="0.1" value="29.7" />
+                  </div>
+
+                  <button type="button" class="btn-swap-orient" id="swapPaperOrientationBtn" title="Girar orientación de la hoja (Vertical ↔ Horizontal)">
+                    🔄 Girar Hoja
+                  </button>
+                </div>
+
+                <div class="grid-extra-toggles">
+                  <label class="mini-check highlight-check" title="Ajusta el área de la foto y la cuadrícula a la proporción exacta de tu hoja física">
+                    <input type="checkbox" id="lockToPaperRatioCheck" checked />
+                    <span>📐 Ajustar marco de referencia a la proporción exacta de mi hoja</span>
+                  </label>
+                  <label class="mini-check" title="Elige si prefieres que la foto llene toda la hoja (recortando bordes) o que se vea entera dentro de la hoja">
+                    <input type="checkbox" id="paperCropCoverCheck" />
+                    <span>🔍 Llenar toda la hoja (sin márgenes)</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Guía de medidas exactas en cm para trazar con regla en el papel físico -->
+            <div class="paper-ruler-readout" id="paperRulerReadout">
+              📏 En tu hoja de <strong>21.0 × 29.7 cm</strong> (3 col × 3 filas): cada casilla mide <strong>7.00 cm de ancho × 9.90 cm de alto</strong>.
+            </div>
+          </div>
+
+          <!-- Escenario Principal: Vista Individual -->
+          <div class="reference-stage" id="referenceStage">
+            <!-- Estado de carga -->
+            <div class="stage-loader" id="stageLoader">
+              <div class="spinner"></div>
+              <p id="loaderMessage">Verificando 10 referencias exactas del objeto...</p>
+            </div>
+
+            <!-- Botón Anterior -->
+            <button class="stage-nav-btn prev" id="prevRefBtn" title="Imagen anterior (Flecha Izquierda)">
+              ‹
+            </button>
+
+            <!-- Contenedor de la imagen y superposiciones -->
+            <div class="canvas-viewport" id="canvasViewport">
+              <div class="image-transform-wrapper" id="imageTransformWrapper">
+                <img id="mainReferenceImg" src="" alt="Imagen de referencia para dibujar" draggable="false" />
+                <!-- Superposición de "Mi Dibujo" (Modo Cebolla) -->
+                <img id="userDrawingOverlayImg" class="user-drawing-overlay hidden" src="" alt="Tu dibujo superpuesto" draggable="false" />
+                <!-- Cuadrícula SVG dinámica (Filas × Columnas + Coordenadas + Proporción de Hoja) -->
+                <svg class="grid-overlay" id="gridOverlay" viewBox="0 0 1000 1000" preserveAspectRatio="none"></svg>
+                <!-- Plomada Vertical y Nivel Horizontal Interactivos -->
+                <div class="plumb-level-overlay hidden" id="plumbLevelOverlay" title="Haz clic o arrastra para mover la Plomada vertical y el Nivel horizontal">
+                  <div class="plumb-line-v" id="plumbLineV"></div>
+                  <div class="plumb-line-h" id="plumbLineH"></div>
+                  <div class="plumb-pivot-handle" id="plumbPivotHandle">┼</div>
+                  <div class="plumb-coords-badge" id="plumbCoordsBadge">Plomada X: 50% · Nivel Y: 50%</div>
+                </div>
+                <!-- Medidor de Ángulos / Transportador Sight-Size Interactivo -->
+                <div class="angle-protractor-overlay hidden" id="angleProtractorOverlay">
+                  <svg class="protractor-svg" id="protractorSvg" viewBox="0 0 1000 1000" preserveAspectRatio="none">
+                    <line id="protractorRefHLine" x1="250" y1="600" x2="750" y2="600" stroke="rgba(255,255,255,0.45)" stroke-width="1.5" stroke-dasharray="6 6" vector-effect="non-scaling-stroke" />
+                    <line id="protractorRefVLine" x1="250" y1="200" x2="250" y2="850" stroke="rgba(255,255,255,0.45)" stroke-width="1.5" stroke-dasharray="6 6" vector-effect="non-scaling-stroke" />
+                    <path id="protractorArcPath" d="" fill="rgba(56, 189, 248, 0.18)" stroke="#38bdf8" stroke-width="2" vector-effect="non-scaling-stroke" />
+                    <line id="protractorMainLine" x1="300" y1="650" x2="700" y2="350" stroke="#38bdf8" stroke-width="3" vector-effect="non-scaling-stroke" />
+                  </svg>
+                  <div class="protractor-handle handle-a" id="protractorHandleA" title="Arrastra el punto base A">A</div>
+                  <div class="protractor-handle handle-b" id="protractorHandleB" title="Arrastra el extremo B para medir la inclinación">B</div>
+                  <div class="protractor-readout-badge" id="protractorReadoutBadge">📐 Inclinación: 36.9° · Aguja: ~1:50 hs</div>
+                </div>
+                <!-- Velo de Entrenamiento de Memoria Visual (Flash Sketching) -->
+                <div class="memory-veil-overlay hidden" id="memoryVeilOverlay">
+                  <div class="memory-veil-card">
+                    <span class="memory-veil-icon">🧠</span>
+                    <h4>Dibujando de Memoria</h4>
+                    <p id="memoryVeilText">La referencia está oculta para entrenar tu retención de proporciones y volúmenes.</p>
+                    <button type="button" class="btn btn-secondary btn-sm" id="peekMemoryRefBtn">👁️ Mantener o pulsar [H] para espiar (3 seg)</button>
+                  </div>
+                </div>
+                <!-- Etiqueta flotante de formato de hoja sobre el marco -->
+                <div class="paper-frame-badge hidden" id="paperFrameBadge">📐 Hoja 21.0 × 29.7 cm</div>
+              </div>
+            </div>
+
+            <!-- Botón Siguiente -->
+            <button class="stage-nav-btn next" id="nextRefBtn" title="Siguiente imagen (Flecha Derecha)">
+              ›
+            </button>
+
+            <!-- Pie flotante con información de la foto y verificación -->
+            <div class="stage-caption-bar">
+              <div class="caption-left">
+                <span class="verified-source-badge" id="imageVerifiedBadge">📷 Foto Verificada</span>
+                <span id="imageTitleCaption">Referencia #1</span>
+              </div>
+              <a id="imageSourceLink" href="#" target="_blank" rel="noopener noreferrer" class="source-link">Abrir imagen original ↗</a>
+            </div>
+          </div>
+
+          <!-- Vista Alternativa: Cuadrícula con las 10 Imágenes -->
+          <div class="ten-grid-view hidden" id="tenGridView">
+            <div class="ten-grid-header">
+              <h3>Colección de 10 Imágenes de Referencia Concordantes</h3>
+              <p>Haz clic en cualquiera de las 10 imágenes para estudiarla en grande con el cronómetro.</p>
+            </div>
+            <div class="ten-images-grid" id="tenImagesGrid">
+              <!-- Se generan las 10 tarjetas aquí -->
+            </div>
+          </div>
+
+          <!-- Tira inferior de las 10 miniaturas (Filmstrip) -->
+          <div class="filmstrip-bar" id="filmstripBar">
+            <!-- 10 miniaturas numeradas del 1 al 10 -->
+          </div>
+        </div>
+
+        <!-- COLUMNA DERECHA: CRONÓMETRO DE SKETCHING -->
+        <aside class="timer-sidebar">
+          <div class="timer-card">
+            <div class="timer-card-header">
+              <h3>⏱️ Cronómetro de Sketch</h3>
+              <span class="timer-mode-badge" id="timerGoalBadge">Ritmo &amp; Construcción</span>
+            </div>
+
+            <!-- Selector de Tiempos (30s, 1m, 5m, 10m, 30m) -->
+            <div class="preset-times-section">
+              <label class="section-label">Elige la duración del sketch:</label>
+              <div class="preset-buttons-grid">
+                <button class="preset-time-btn" data-seconds="30">
+                  <span class="preset-val">30s</span>
+                  <span class="preset-tag">Gesto</span>
+                </button>
+                <button class="preset-time-btn" data-seconds="60">
+                  <span class="preset-val">1 min</span>
+                  <span class="preset-tag">Boceto</span>
+                </button>
+                <button class="preset-time-btn active" data-seconds="300">
+                  <span class="preset-val">5 min</span>
+                  <span class="preset-tag">Volumen</span>
+                </button>
+                <button class="preset-time-btn" data-seconds="600">
+                  <span class="preset-val">10 min</span>
+                  <span class="preset-tag">Sombra</span>
+                </button>
+                <button class="preset-time-btn" data-seconds="1800">
+                  <span class="preset-val">30 min</span>
+                  <span class="preset-tag">Estudio</span>
+                </button>
+                <button class="preset-time-btn" id="customTimeToggleBtn" data-seconds="custom">
+                  <span class="preset-val">⚙️ Otro</span>
+                  <span class="preset-tag">A medida</span>
+                </button>
+              </div>
+
+              <!-- Input opcional para tiempo personalizado -->
+              <div class="custom-time-row hidden" id="customTimeRow">
+                <input type="number" id="customMinInput" min="0" max="180" value="2" /> <span>min</span>
+                <input type="number" id="customSecInput" min="0" max="59" value="30" /> <span>seg</span>
+                <button class="btn btn-sm btn-secondary" id="applyCustomTimeBtn">Aplicar</button>
+              </div>
+            </div>
+
+            <!-- Anillo Circular del Cronómetro -->
+            <div class="timer-ring-container">
+              <svg class="timer-ring-svg" viewBox="0 0 220 220">
+                <circle class="timer-ring-bg" cx="110" cy="110" r="96" />
+                <circle class="timer-ring-progress" id="timerRingProgress" cx="110" cy="110" r="96" />
+              </svg>
+              <div class="timer-readout-center">
+                <div class="timer-digits" id="timerDigits">05:00</div>
+                <div class="timer-substatus" id="timerSubstatus">Listo para empezar</div>
+              </div>
+            </div>
+
+            <!-- Guía pedagógica según el tiempo elegido -->
+            <div class="time-focus-guide" id="timeFocusGuide">
+              <strong>Enfoque de 5 min:</strong> Encaja las formas geométricas básicas (cilindros, cajas, esferas), verifica proporciones y separa el bloque de luz del de sombra.
+            </div>
+
+            <!-- Botones Principales del Cronómetro -->
+            <div class="timer-controls">
+              <button class="btn btn-primary btn-timer-main" id="timerStartPauseBtn">
+                ▶ Iniciar Sketch
+              </button>
+              <div class="timer-secondary-controls">
+                <button class="btn btn-secondary" id="timerResetBtn" title="Reiniciar el tiempo actual (Tecla R)">
+                  ↺ Reiniciar
+                </button>
+                <button class="btn btn-secondary" id="timerCompleteNextBtn" title="Marcar como completado y pasar a la siguiente referencia">
+                  ✓ Listo · Siguiente foto →
+                </button>
+              </div>
+            </div>
+
+            <!-- Opciones de Sesión, Modos de Entrenamiento Visual y Auto-avance -->
+            <div class="session-options">
+              <label class="checkbox-row">
+                <input type="checkbox" id="autoAdvanceCheckbox" checked />
+                <span>Pasar automáticamente a la siguiente imagen (1→10) al terminar el tiempo</span>
+              </label>
+              <label class="checkbox-row">
+                <input type="checkbox" id="soundEnabledCheckbox" checked />
+                <span>Avisos de sonido (tic-tac final y campana)</span>
+              </label>
+              <label class="checkbox-row highlight-mode-row" title="Empieza muy desenfocado (22px) para obligarte a encajar grandes masas y se va enfocando solo a medida que avanza el reloj">
+                <input type="checkbox" id="progressiveBlurModeCheck" />
+                <span>🌫️ <strong>De Masas a Detalles:</strong> Desenfoque alto al inicio que se enfoca solo con el reloj</span>
+              </label>
+              <label class="checkbox-row highlight-mode-row" title="Muestra la foto durante los primeros segundos, la oculta mientras dibujas de memoria y la revela al final para comparar">
+                <input type="checkbox" id="memoryFlashModeCheck" />
+                <span>🧠 <strong>Memoria Visual (Flash):</strong> Observar 15s → Ocultar → Revelar al final</span>
+              </label>
+            </div>
+
+            <!-- Modo Especial: Rutinas de Entrenamiento en las 10 imágenes -->
+            <div class="progressive-workout-box">
+              <div class="workout-info">
+                <strong>🔥 Rutinas Guiadas (10 Sketches):</strong>
+                <select id="workoutRoutineSelect" class="compact-select" style="width:100%;margin-top:0.35rem;margin-bottom:0.25rem;">
+                  <option value="progressive">⚡ Progresiva Clásica (3×30s · 3×1m · 2×5m · 1×10m · 1×30m)</option>
+                  <option value="gesture_warmup">🔥 Calentamiento Rápido Gesture (5×30s + 5×1m = 7.5 min)</option>
+                  <option value="block_in">📐 Encaje y Construcción (4×2m + 4×3m + 2×5m = 30 min)</option>
+                  <option value="academic_values">🏛️ Estudio Académico de Valores (2×2m + 4×5m + 4×10m)</option>
+                </select>
+              </div>
+              <button class="btn btn-outline btn-full" id="startProgressiveSessionBtn">
+                ⚡ Iniciar Rutina Seleccionada (10 Fotos)
+              </button>
+            </div>
+          </div>
+
+          <!-- Consejo del objeto actual en la barra lateral -->
+          <div class="studio-tip-card">
+            <h4>💡 Consejo para <span id="sidebarObjName">este objeto</span></h4>
+            <p id="sidebarObjTip">Observa las proporciones generales antes de entrar en detalles.</p>
+          </div>
+
+          <!-- Guía rápida de Atajos de Teclado -->
+          <div class="studio-tip-card shortcuts-card">
+            <h4>⌨️ Atajos Rápidos de Estudio</h4>
+            <div class="shortcuts-grid">
+              <span><kbd>Espacio</kbd> Iniciar/Pausa</span>
+              <span><kbd>←</kbd> <kbd>→</kbd> Cambiar foto</span>
+              <span><kbd>G</kbd> Blanco y Negro</span>
+              <span><kbd>B</kbd> Masas (Blur)</span>
+              <span><kbd>N</kbd> Valores (Notan)</span>
+              <span><kbd>S</kbd> Silueta Pura</span>
+              <span><kbd>E</kbd> Contornos</span>
+              <span><kbd>P</kbd> Plomada/Nivel</span>
+              <span><kbd>A</kbd> Medir Ángulo</span>
+              <span><kbd>M</kbd> Cuadrícula</span>
+              <span><kbd>H</kbd> Espiar Memoria</span>
+              <span><kbd>Ctrl+V</kbd> Pegar Foto</span>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <!-- Modal de Configuración de Bibliotecas (Pexels, Pixabay, Unsplash, Openverse, Museos) e IA (Gemini) -->
+  <div class="modal-backdrop hidden" id="aiSettingsModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>📚 Bibliotecas de Imágenes &amp; Configuración IA</h3>
+        <button class="modal-close-btn" id="closeAiSettingsBtn">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-desc">
+          Por defecto, <strong>TRAZO</strong> combina automáticamente <strong>4 bibliotecas sin clave</strong>:
+          <strong>Openverse (Flickr / Rawpixel / StockSnap)</strong>, <strong>Cleveland Museum of Art</strong>,
+          <strong>iNaturalist Científica</strong> y <strong>Wikimedia Commons</strong>.
+          Además, puedes añadir tus claves gratuitas de <strong>Pexels</strong>, <strong>Pixabay</strong>, <strong>Unsplash</strong> o <strong>Google Gemini</strong>:
+        </p>
+
+        <div class="form-field">
+          <label for="pexelsApiKeyInput">🟢 Clave de Pexels API (Opcional · <a href="https://www.pexels.com/api/" target="_blank" rel="noopener" class="source-link">Obtener gratis en pexels.com/api ↗</a>):</label>
+          <input
+            type="password"
+            id="pexelsApiKeyInput"
+            placeholder="Pega tu API Key de Pexels para activar fotos de estudio de Pexels..."
+            autocomplete="off"
+          />
+        </div>
+
+        <div class="form-field">
+          <label for="pixabayApiKeyInput">🟡 Clave de Pixabay API (Opcional · <a href="https://pixabay.com/api/docs/" target="_blank" rel="noopener" class="source-link">Obtener en pixabay.com/api ↗</a>):</label>
+          <input
+            type="password"
+            id="pixabayApiKeyInput"
+            placeholder="Pega tu API Key de Pixabay..."
+            autocomplete="off"
+          />
+        </div>
+
+        <div class="form-field">
+          <label for="unsplashApiKeyInput">⚫ Clave de Unsplash Access Key (Opcional · <a href="https://unsplash.com/developers" target="_blank" rel="noopener" class="source-link">unsplash.com/developers ↗</a>):</label>
+          <input
+            type="password"
+            id="unsplashApiKeyInput"
+            placeholder="Pega tu Access Key de Unsplash..."
+            autocomplete="off"
+          />
+        </div>
+
+        <div class="form-field">
+          <label for="geminiApiKeyInput">🤖 Clave de Google Gemini API (Opcional · <code>gemini-3.8-flash</code> y <code>gemini-3.1-flash-image</code>):</label>
+          <input
+            type="password"
+            id="geminiApiKeyInput"
+            placeholder="AIzaSy..."
+            autocomplete="off"
+          />
+        </div>
+
+        <div class="form-field">
+          <label for="modalRefSourceSelect">Modo de biblioteca predeterminado:</label>
+          <select id="modalRefSourceSelect">
+            <option value="google_web" selected>🔎 Búsqueda Web Directa (Imágenes como en Google)</option>
+            <option value="all_libraries">🌐 Todo Combinado (Web + Pexels + Openverse + Museos + Wiki)</option>
+            <option value="openverse">📸 Solo Openverse (Flickr · StockSnap · Rawpixel)</option>
+            <option value="pexels">🟢 Solo Pexels API</option>
+            <option value="museums_inat">🏛️ Solo Museos &amp; Ciencia (Cleveland Museum + iNaturalist)</option>
+            <option value="wikimedia">📷 Solo Wikimedia Commons</option>
+            <option value="gemini_ai">🤖 Gemini 3.1 Flash Image (IA)</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="cancelAiSettingsBtn">Cancelar</button>
+        <button class="btn btn-primary" id="saveAiSettingsBtn">Guardar y recargar referencias</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast de Notificación -->
+  <div class="toast-notification hidden" id="toastNotification">
+    <span class="toast-icon" id="toastIcon">🔔</span>
+    <div class="toast-content">
+      <strong id="toastTitle">¡Tiempo completado!</strong>
+      <p id="toastBody">Pasando a la siguiente referencia...</p>
+    </div>
+  </div>
+
+  <script src="objects-data.js"></script>
+  <script src="ai-engine.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

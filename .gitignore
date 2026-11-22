@@ -1,0 +1,15 @@
+# Generado automáticamente por GitPulse Studio
+.env
+.env.local
+.env.*.local
+!.env.example
+.DS_Store
+Thumbs.db
+*.log
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+dist/
+.cache/
